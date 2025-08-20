@@ -26,11 +26,6 @@ jobs:
       with:
         submodules: recursive # 如果项目有子模块，请启用
 
-    - name: Create Build Directory
-      run: |
-        mkdir build
-        cd build
-      shell: bash
 
     - name: Configure with CMake (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
