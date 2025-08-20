@@ -1,0 +1,83 @@
+name: Build C Library (Multi-OS)
+
+on:
+  push:
+    tags:
+      - 'v*' # 当推送版本标签时触发
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build_type: Release
+            artifact_name: linux
+          - os: windows-latest
+            build_type: Release
+            artifact_name: windows
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive # 如果项目有子模块，请启用
+
+    - name: Create Build Directory
+      run: |
+        mkdir build
+        cd build
+      shell: bash
+
+    - name: Configure with CMake (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_SHARED_LIBS=ON
+      shell: bash
+
+    - name: Configure with CMake (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_SHARED_LIBS=ON -A x64
+      shell: bash
+
+    - name: Build with CMake
+      run: |
+        cd build
+        cmake --build . --config ${{ matrix.build_type }}
+
+    - name: Find and Collect Library Files (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cd build
+        # 查找所有的 .so 文件（Linux 动态库）
+        find . -name "*.so" -o -name "*.so.*" | xargs -I {} cp {} ../libs/
+      shell: bash
+
+    - name: Find and Collect Library Files (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cd build
+        # 在 Windows 上查找 .dll 文件
+        # Release 目录通常在 Windows 的 Visual Studio 生成结构中
+        find . -name "*.dll" | xargs -I {} cp {} ../libs/
+      shell: bash
+
+    - name: Create Artifacts Directory
+      run: mkdir -p libs
+
+    - name: List Collected Files
+      run: |
+        echo "Collected library files:"
+        ls -la libs/ || dir libs/
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-libraries
+        path: libs/
