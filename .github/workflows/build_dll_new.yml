@@ -1,0 +1,109 @@
+name: Build C Library (Multi-OS Robust)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build_type: Release
+            artifact_name: linux
+            lib_ext: "*.so*"
+          - os: windows-latest
+            build_type: Release
+            artifact_name: windows
+            lib_ext: "*.dll"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Ubuntu Dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+
+    - name: Install Windows Dependencies
+      if: matrix.os == 'windows-latest'
+      run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+      shell: pwsh
+
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_SHARED_LIBS=ON -A x64
+        else
+          cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_SHARED_LIBS=ON
+        fi
+      shell: bash
+
+    - name: Build Project
+      run: |
+        cd build
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cmake --build . --config ${{ matrix.build_type }}
+        else
+          cmake --build . --config ${{ matrix.build_type }} --parallel $(nproc)
+        fi
+      shell: bash
+
+    - name: Create Output Directory
+      run: mkdir -p dist
+      shell: bash
+
+    - name: Copy Linux Libraries
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        find build -name "*.so" -o -name "*.so.*" | xargs -I {} cp -v {} dist/
+      shell: bash
+
+    - name: Copy Windows Libraries
+      if: matrix.os == 'windows-latest'
+      run: |
+        # 在 Windows 中查找并复制 DLL 文件
+        Get-ChildItem -Path build -Recurse -Filter "*.dll" | ForEach-Object { Copy-Item $_.FullName -Destination "dist" }
+        # 同时复制相关的 .lib 文件（导入库）
+        Get-ChildItem -Path build -Recurse -Filter "*.lib" | ForEach-Object { Copy-Item $_.FullName -Destination "dist" }
+      shell: pwsh
+
+    - name: Verify Artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        echo "Generated files on Linux:"
+        ls -la dist/
+        echo "File details:"
+        file dist/* 2>/dev/null || echo "File command not available"
+      shell: bash
+
+    - name: Verify Artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "Generated files on Windows:"
+        Get-ChildItem -Path dist
+        echo "File details:"
+        if (Get-Command file -ErrorAction SilentlyContinue) {
+          file dist/*
+        } else {
+          echo "File command not available on Windows"
+        }
+      shell: pwsh
+
+    - name: Upload Libraries
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-${{ matrix.build_type }}-libraries
+        path: dist/
+        
